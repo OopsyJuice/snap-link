@@ -1,0 +1,42 @@
+body {
+    width: 300px;
+    padding: 15px;
+    font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto;
+  }
+  
+  .container {
+    text-align: center;
+  }
+  
+  button {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin: 10px 0;
+    font-size: 14px;
+  }
+  
+  button:hover {
+    background: #45a049;
+  }
+  
+  #result {
+    margin: 10px 0;
+    padding: 10px;
+    word-break: break-all;
+  }
+  
+  .success {
+    background: #e8f5e9;
+    border: 1px solid #a5d6a7;
+    border-radius: 4px;
+  }
+  
+  .error {
+    background: #ffebee;
+    border: 1px solid #ef9a9a;
+    border-radius: 4px;
+  }
