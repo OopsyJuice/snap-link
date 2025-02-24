@@ -7,6 +7,21 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .navbar {
+            padding: 1rem 2rem;  /* Add consistent padding */
+            background: white;
+            border-bottom: 1px solid #eee;
+        }
+
+        .navbar-content {
+            max-width: 1280px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    </style>
 </head>
 <body>
     <nav>
@@ -15,6 +30,7 @@
             {% if current_user.is_authenticated %}
                 <div class="nav-links">
                     <a href="{{ url_for('main.dashboard') }}">Dashboard</a>
+                    <a href="{{ url_for('main.settings') }}">Settings</a>
                     <a href="{{ url_for('auth.logout') }}">Logout</a>
                 </div>
             {% endif %}

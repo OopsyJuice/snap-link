@@ -1,11 +1,13 @@
 from flask import Blueprint, jsonify, request, redirect, render_template, current_app, url_for, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from flask_login import login_required, current_user
-from backend.app.models import URL, User, ClickEvent, db
+from backend.app.models import URL, User, ClickEvent, db, CustomDomain
 from backend.app.utils import generate_short_code
 import validators
 from datetime import datetime
 import logging
+import secrets
+import dns.resolver
 
 bp = Blueprint('main', __name__)
 
@@ -15,7 +17,11 @@ bp = Blueprint('main', __name__)
 def dashboard():
     urls = URL.query.filter_by(user_id=current_user.id)\
               .order_by(URL.created_at.desc()).all()
-    return render_template('dashboard.html', urls=urls)
+    verified_domains = CustomDomain.query.filter_by(
+        user_id=current_user.id,
+        verified=True
+    ).all()
+    return render_template('dashboard.html', urls=urls, verified_domains=verified_domains)
 
 @bp.route('/urls/<short_code>/stats')
 @login_required
@@ -33,24 +39,44 @@ def url_stats(short_code):
 @bp.route('/api/shorten', methods=['POST'])
 @login_required
 def shorten_url():
-    url = request.json.get('url')
+    data = request.get_json()
+    url = data.get('url')
+    domain_id = data.get('domain_id')
     
     if not url:
         return jsonify({'error': 'URL is required'}), 400
+        
+    if not validators.url(url):
+        return jsonify({'error': 'Invalid URL'}), 400
+    
+    # If domain_id is provided, verify it belongs to the user and is verified
+    custom_domain = None
+    if domain_id:
+        custom_domain = CustomDomain.query.filter_by(
+            id=domain_id,
+            user_id=current_user.id,
+            verified=True
+        ).first()
+        if not custom_domain:
+            return jsonify({'error': 'Invalid or unverified domain'}), 400
     
     short_code = generate_short_code()
+    
     new_url = URL(
         original_url=url,
         short_code=short_code,
-        user_id=current_user.id
+        user_id=current_user.id,
+        domain_id=custom_domain.id if custom_domain else None
     )
     
     db.session.add(new_url)
     db.session.commit()
     
+    domain = custom_domain.domain if custom_domain else request.host
+    
     return jsonify({
         'short_code': short_code,
-        'domain': request.host
+        'domain': domain
     })
 
 @bp.route('/<short_code>')
@@ -211,60 +237,89 @@ def get_url_analytics(short_code):
     
     return jsonify(analytics)
 
-@bp.route('/api/domains', methods=['POST'])
+@bp.route('/api/domains', methods=['GET', 'POST'])
 @login_required
-def add_domain():
-    domain = request.json.get('domain')
-    if not domain:
-        return jsonify({'error': 'Domain is required'}), 400
+def manage_domains():
+    if request.method == 'GET':
+        domains = CustomDomain.query.filter_by(user_id=current_user.id).all()
+        return jsonify([{
+            'id': domain.id,
+            'domain': domain.domain,
+            'verified': domain.verified,
+            'created_at': domain.created_at.isoformat(),
+            'verification_token': domain.verification_token
+        } for domain in domains])
+    
+    elif request.method == 'POST':
+        domain = request.json.get('domain')
         
-    # Generate verification token
-    verification_token = token_hex(32)
-    
-    custom_domain = CustomDomain(
-        user_id=current_user.id,
-        domain=domain,
-        verification_token=verification_token
-    )
-    
-    db.session.add(custom_domain)
-    db.session.commit()
-    
-    return jsonify({
-        'domain': domain,
-        'verification_token': verification_token,
-        'instructions': {
-            'txt_record': f'snaplink-verify={verification_token}',
-            'steps': [
-                'Add a TXT record to your domain DNS settings',
-                'Set the host to @',
-                'Set the value to the verification token',
-                'Wait for DNS propagation (may take up to 24 hours)',
-                'Click verify to complete the process'
-            ]
-        }
-    })
+        if not domain:
+            return jsonify({'error': 'Domain is required'}), 400
+            
+        # Remove http:// or https:// if present
+        domain = domain.replace('http://', '').replace('https://', '')
+        
+        # Remove trailing slash if present
+        domain = domain.rstrip('/')
+        
+        # Check if domain already exists
+        if CustomDomain.query.filter_by(domain=domain).first():
+            return jsonify({'error': 'Domain already exists'}), 400
+        
+        # Generate verification token
+        verification_token = secrets.token_urlsafe(32)
+        
+        new_domain = CustomDomain(
+            domain=domain,
+            user_id=current_user.id,
+            verification_token=verification_token
+        )
+        
+        db.session.add(new_domain)
+        db.session.commit()
+        
+        return jsonify({
+            'id': new_domain.id,
+            'domain': new_domain.domain,
+            'verified': new_domain.verified,
+            'created_at': new_domain.created_at.isoformat(),
+            'verification_token': new_domain.verification_token
+        }), 201
 
 @bp.route('/api/domains/<int:domain_id>/verify', methods=['POST'])
 @login_required
 def verify_domain(domain_id):
-    domain = CustomDomain.query.get_or_404(domain_id)
-    
-    if domain.user_id != current_user.id:
-        abort(403)
+    domain = CustomDomain.query.filter_by(
+        id=domain_id, 
+        user_id=current_user.id
+    ).first_or_404()
     
     try:
-        # Check TXT records
+        # Query TXT records
         answers = dns.resolver.resolve(domain.domain, 'TXT')
+        
+        # Check if our verification token exists in any of the TXT records
+        expected_record = f'snaplink-verify={domain.verification_token}'
+        
         for rdata in answers:
             for txt_string in rdata.strings:
-                if txt_string.decode() == f'snaplink-verify={domain.verification_token}':
-                    domain.dns_verified = True
+                if txt_string.decode() == expected_record:
                     domain.verified = True
-                    domain.last_dns_check = datetime.utcnow()
                     db.session.commit()
                     return jsonify({'status': 'verified'})
+        
+        return jsonify({
+            'error': 'Verification record not found. Please check that you added the TXT record correctly.'
+        }), 400
+        
+    except dns.resolver.NXDOMAIN:
+        return jsonify({'error': 'Domain does not exist'}), 400
+    except dns.resolver.NoAnswer:
+        return jsonify({'error': 'No TXT records found'}), 400
     except Exception as e:
-        logging.error(f"DNS verification failed: {e}")
-    
-    return jsonify({'error': 'Verification failed. Please check DNS settings and try again.'}), 400
+        return jsonify({'error': f'Verification failed: {str(e)}'}), 400
+
+@bp.route('/settings')
+@login_required
+def settings():
+    return render_template('settings.html')

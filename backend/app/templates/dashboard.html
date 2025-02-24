@@ -9,12 +9,18 @@
         <div class="card shortener-box">
             <h2>Shorten a URL</h2>
             <form id="urlForm" class="url-form">
-                <div class="form-group">
+                <div class="shortener-input-group">
                     <input type="url" id="originalUrl" class="url-input" placeholder="Enter your URL here" required>
+                    <select id="domainSelect" class="domain-select">
+                        <option value="">Default Domain</option>
+                        {% for domain in verified_domains %}
+                            <option value="{{ domain.id }}">{{ domain.domain }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" id="submitButton" class="btn btn-primary">
+                        <i class="fas fa-link"></i> Shorten
+                    </button>
                 </div>
-                <button type="submit" id="submitButton" class="btn btn-primary">
-                    <i class="fas fa-link"></i> Shorten
-                </button>
             </form>
             <div id="result"></div>
         </div>
@@ -27,8 +33,9 @@
                 <div class="url-details">
                     <div class="original-url">{{ url.original_url }}</div>
                     <div class="short-url">
-                        http://{{ request.host }}/{{ url.short_code }}
-                        <button class="btn btn-copy" onclick="copyUrl(this)" data-url="http://{{ request.host }}/{{ url.short_code }}">
+                        http://{{ url.custom_domain.domain if url.custom_domain else request.host }}/{{ url.short_code }}
+                        <button class="btn btn-copy" onclick="copyUrl(this)" 
+                                data-url="http://{{ url.custom_domain.domain if url.custom_domain else request.host }}/{{ url.short_code }}">
                             <i class="fas fa-copy"></i>
                         </button>
                     </div>
@@ -107,4 +114,80 @@ document.getElementById('urlForm').addEventListener('submit', function(e) {
     });
 });
 </script>
+
+<style>
+.container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+/* Override the global dashboard-container styles */
+.dashboard-container {
+    display: grid;
+    gap: 2rem;
+    grid-template-columns: 1fr;
+    padding-left: 6rem;  /* Adjust this value to match the SnapLink logo alignment */
+    padding-right: 6rem;
+    margin: 0 -2rem;
+}
+
+.shortener-box {
+    padding: 2rem;
+    width: 100%;
+    margin: 0 auto;
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.shortener-box h2 {
+    margin-bottom: 1.5rem;
+    font-size: 1.75rem;
+    color: var(--text-color);
+}
+
+.shortener-input-group {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    width: 100%;
+}
+
+.url-input {
+    flex: 4;
+    padding: 0.875rem 1.25rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 1rem;
+}
+
+.domain-select {
+    flex: 1;
+    min-width: 180px;
+    max-width: 250px;
+    padding: 0.875rem 1.25rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 1rem;
+    background-color: white;
+}
+
+.btn-primary {
+    padding: 0.875rem 1.75rem;
+    white-space: nowrap;
+    font-size: 1rem;
+}
+
+#result {
+    margin-top: 1.5rem;
+}
+
+/* Focus states */
+.url-input:focus,
+.domain-select:focus {
+    border-color: var(--primary-color);
+    outline: none;
+}
+</style>
 {% endblock %}
