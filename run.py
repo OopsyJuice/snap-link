@@ -1,4 +1,7 @@
+import os
+from flask.cli import FlaskGroup
 from backend.app import create_app, db
+from flask_migrate import Migrate
 import logging
 
 # Setup basic logging
@@ -6,6 +9,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = create_app()
+migrate = Migrate(app, db)
+
+# Add this to help Flask find the app
+os.environ['FLASK_APP'] = 'run.py'
+
+cli = FlaskGroup(app)
 
 if __name__ == '__main__':
     try:

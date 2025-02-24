@@ -1,0 +1,312 @@
+{% extends "base.html" %}
+
+{% block title %}Stats for {{ url.short_code }} - SnapLink{% endblock %}
+
+{% block content %}
+<div class="stats-container">
+    <div class="stats-header">
+        <h2>URL Statistics</h2>
+        <a href="{{ url_for('main.dashboard') }}" class="btn btn-back">Back to Dashboard</a>
+    </div>
+
+    <div class="url-details">
+        <div class="detail-card">
+            <h3>URL Information</h3>
+            <div class="detail-row">
+                <span class="label">Original URL:</span>
+                <a href="{{ url.original_url }}" target="_blank" class="value">{{ url.original_url }}</a>
+            </div>
+            <div class="detail-row">
+                <span class="label">Short URL:</span>
+                <div class="value with-copy">
+                    <span>{{ request.host_url }}{{ url.short_code }}</span>
+                    <button class="btn-copy" data-url="{{ request.host_url }}{{ url.short_code }}">Copy</button>
+                </div>
+            </div>
+            <div class="detail-row">
+                <span class="label">Created:</span>
+                <span class="value">{{ url.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">Total Clicks:</span>
+                <span class="value">{{ url.clicks }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="analytics-grid">
+        <div class="chart-container">
+            <h3>Clicks Over Time</h3>
+            <canvas id="timelineChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <h3>Device Distribution</h3>
+            <canvas id="deviceChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <h3>Browsers</h3>
+            <canvas id="browserChart"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <h3>Top Referrers</h3>
+            <canvas id="referrerChart"></canvas>
+        </div>
+        
+        <div class="chart-container full-width">
+            <h3>Peak Hours (24h)</h3>
+            <canvas id="peakHoursChart"></canvas>
+        </div>
+        
+        <div class="chart-container full-width">
+            <h3>Geographic Distribution</h3>
+            <div id="map" style="height: 400px;"></div>
+        </div>
+    </div>
+
+    <div class="click-history">
+        <h3>Click History</h3>
+        <div class="clicks-table">
+            {% if clicks %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>IP Address</th>
+                        <th>Browser</th>
+                        <th>Referrer</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for click in clicks %}
+                    <tr>
+                        <td>{{ click.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td>{{ click.ip_address }}</td>
+                        <td>{{ click.user_agent[:50] }}{% if click.user_agent|length > 50 %}...{% endif %}</td>
+                        <td>{{ click.referrer or 'Direct' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <p>No clicks recorded yet.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        const response = await fetch(`/api/urls/{{ url.short_code }}/analytics`);
+        const data = await response.json();
+        
+        // Timeline Chart
+        new Chart(document.getElementById('timelineChart'), {
+            type: 'line',
+            data: {
+                labels: Object.keys(data.timeline_data),
+                datasets: [{
+                    label: 'Clicks',
+                    data: Object.values(data.timeline_data),
+                    borderColor: '#3498db',
+                    tension: 0.1
+                }]
+            }
+        });
+        
+        // Device Chart
+        new Chart(document.getElementById('deviceChart'), {
+            type: 'pie',
+            data: {
+                labels: Object.keys(data.devices),
+                datasets: [{
+                    data: Object.values(data.devices),
+                    backgroundColor: ['#3498db', '#e74c3c', '#2ecc71']
+                }]
+            }
+        });
+        
+        // Browser Chart
+        new Chart(document.getElementById('browserChart'), {
+            type: 'pie',
+            data: {
+                labels: Object.keys(data.browsers),
+                datasets: [{
+                    data: Object.values(data.browsers),
+                    backgroundColor: ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6']
+                }]
+            }
+        });
+        
+        // Referrer Chart
+        new Chart(document.getElementById('referrerChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(data.referrers),
+                datasets: [{
+                    label: 'Clicks',
+                    data: Object.values(data.referrers),
+                    backgroundColor: '#3498db'
+                }]
+            }
+        });
+        
+        // Peak Hours Chart
+        new Chart(document.getElementById('peakHoursChart'), {
+            type: 'bar',
+            data: {
+                labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                datasets: [{
+                    label: 'Clicks',
+                    data: data.peak_hours,
+                    backgroundColor: '#3498db'
+                }]
+            }
+        });
+        
+        // Initialize map
+        const map = L.map('map').setView([20, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // Add markers for clicks with location data
+        data.clicks.forEach(click => {
+            if (click.latitude && click.longitude) {
+                L.marker([click.latitude, click.longitude])
+                    .bindPopup(`${click.city}, ${click.country_name}`)
+                    .addTo(map);
+            }
+        });
+        
+    } catch (error) {
+        console.error('Failed to fetch analytics:', error);
+    }
+});
+</script>
+
+<style>
+.stats-container {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+.stats-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+}
+
+.detail-card {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 2rem;
+}
+
+.detail-row {
+    display: flex;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #eee;
+}
+
+.detail-row:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.label {
+    width: 120px;
+    font-weight: bold;
+    color: #666;
+}
+
+.value {
+    flex: 1;
+}
+
+.value.with-copy {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.clicks-table {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+th {
+    background: #f5f5f5;
+    font-weight: 600;
+}
+
+.btn-back {
+    padding: 0.5rem 1rem;
+    background: #666;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    width: auto;
+}
+
+.btn-back:hover {
+    background: #555;
+}
+
+.btn-copy {
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--primary-color);
+    background: none;
+    color: var(--primary-color);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2rem;
+    margin: 2rem 0;
+}
+
+.chart-container {
+    background: white;
+    padding: 1rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.full-width {
+    grid-column: 1 / -1;
+}
+</style>
+{% endblock %}
